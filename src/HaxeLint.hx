@@ -16,21 +16,19 @@ typedef Info = {
 //Ported from HIDE, adjusted for try-haxe
 class HaxeLint
 {
-	public static var data:Array<Info> = [];
+	public var data:Array<Info> = [];
 
-	public static function load():Void
-	{
-		CodeMirror.registerHelper("lint", "haxe", function (text:String) 
-		{
-			return data;
-		}
-		);
+	public function new() {
+
+	}
+
+	public function getLintData(cm:CodeMirror, update:haxe.Constraints.Function, options:Dynamic) {
+		update(data);
 	}
     
-    public static function updateLinting(cm:CodeMirror):Void
+	public function updateLinting(cm:CodeMirror):Void
 	{
-		cm.setOption("lint", false);
-		cm.setOption("lint", true);
+		untyped cm.performLint();
 	}
 	
 }

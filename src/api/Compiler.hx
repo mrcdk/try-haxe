@@ -3,6 +3,7 @@ package api;
 #if php
 import api.Completion.CompletionResult;
 import api.Completion.CompletionType;
+import api.Completion.CompletionItem;
 import php.Web;
 import Sys;
 import php.Lib;
@@ -37,7 +38,7 @@ class Compiler {
 		for( f in forbidden ) if( f.match( s ) ) throw "Unauthorized macro : "+f.matched(0)+"";
 	}
 
-	public function prepareProgram( program : Program ){
+	public function prepareProgram( program : Program ) {
 
 		while( program.uid == null ) {
 
@@ -62,7 +63,11 @@ class Compiler {
 			FileSystem.createDirectory( tmpDir );
 		}
 
-		for(path in FileSystem.readDirectory(tmpDir)) {
+		for(name in FileSystem.readDirectory(tmpDir)) {
+			var path = tmpDir + name;
+			if(!FileSystem.exists(path)) {
+				throw 'Path does not exist ${path}';
+			}
 			if(FileSystem.isDirectory(path)) {
 				FileSystem.deleteDirectory(path);
 			} else {
@@ -117,19 +122,15 @@ class Compiler {
 					mainClass: old.main.name,
 					target: old.target,
 					libs: old.libs,
-					haxeVersion: Haxe_3_3_0_rc_1,
+					haxeVersion: null,
 					dce: old.dce,
-					analyzer: old.analizer,
+					analyzer: old.analyzer,
 					modules: [
 					 {name: old.main.name, source: null},
 					 {name: "Macro", source: null},
 					]
 				}
 
-			}
-
-			if(p.haxeVersion == null) {
-				p.haxeVersion = Haxe_3_3_0_rc_1;
 			}
 
 			for(module in p.modules) {
@@ -179,7 +180,7 @@ class Compiler {
 	}
 
 	// TODO: topLevel competion
-	public function autocomplete( program : Program , module:Program.Module, idx : Int ) : CompletionResult{
+	public function autocomplete( program : Program , module:Program.Module, idx : Int, completionType:CompletionType ) : CompletionResult{
 
 		try{
 			prepareProgram( program );
@@ -189,7 +190,12 @@ class Compiler {
 
 		var source = module.source;
 		var display = module.name + ".hx@" + idx;
-
+		
+		if (completionType == CompletionType.TOP_LEVEL)
+		{
+			display += "@toplevel";
+		}
+		
 		var args = [
 			"-main" , program.mainClass,
 			"-v",
@@ -230,13 +236,61 @@ class Compiler {
 				return {type:res};
 			}
 
-			var words = [];
-			for( e in xml.nodes.i ){
-				var w = e.att.n;
-				if( !words.has( w ) )
-					words.push( w );
+			var words:Array<CompletionItem> = [];
+			
+			if (completionType == CompletionType.DEFAULT)
+			{
+				for( e in xml.nodes.i ){
+					var w:CompletionItem = {n: e.att.n, d: ""};
+					
+					if (e.hasNode.t)
+					{
+						w.t = e.node.t.innerData;
+						//w.d = w.t + "<br/>";
+					}
+					
+					if (e.hasNode.d)
+					{
+						w.d += e.node.d.innerData;
+					}
+					
+					if( !words.has( w ) )
+						words.push( w );
 
+				}
 			}
+			else if (completionType == CompletionType.TOP_LEVEL)
+			{
+				for (e in xml.nodes.i) {
+					var w:CompletionItem = {n: e.innerData};
+					
+					var elements = [];
+					
+					if (e.has.k)
+					{
+						w.k = e.att.k;
+						elements.push(w.k);
+					}
+					
+					if (e.has.p)
+					{
+						elements.push(e.att.p);
+					}
+					else if (e.has.t)
+					{
+						w.t = e.att.t;
+						elements.push(w.t);
+					}
+					
+					w.d = elements.join(" ");
+					
+					if (!words.has(w))
+					{
+						words.push(w);
+					}
+				}
+			}
+			
 			return {list:words};
 
 		}catch(e:Dynamic){
@@ -297,17 +351,17 @@ class Compiler {
 		var args = [
 			"-main" , program.mainClass,
 			"--times",
+			"-D", "macro-times",
 			"-dce", program.dce
-			//"--dead-code-elimination"
 		];
 
-		if (program.analyzer == "yes") args=args.concat(["-D", "analyzer"]);
+		if (program.analyzer == "yes") args=args.concat(["-D", "analyzer-optimize", "-D", "analyzer"]);
 
 		var outputPath : String;
 		var htmlPath : String = tmpDir + "index.html";
 		var runUrl = '${Api.base}/program/${program.uid}/run';
-		var embedSrc = '<iframe src="http://${Api.host}${Api.base}/embed/${program.uid}" width="100%" height="300" frameborder="no" allowfullscreen>
-	<a href="http://${Api.host}/#${program.uid}">Try Haxe !</a>
+		var embedSrc = '<iframe src="//${Api.host}${Api.base}/embed/${program.uid}" width="100%" height="300" frameborder="no" allowfullscreen>
+	<a href="//${Api.host}/#${program.uid}">Try Haxe !</a>
 </iframe>';
 
 		var html:HTMLConf = {head:[], body:[]};
@@ -320,18 +374,7 @@ class Compiler {
 				args.push( name + ".js" );
 				html.body.push("<script src='//ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js'></script>");
 				html.body.push("<script src='//markknol.github.io/console-log-viewer/console-log-viewer.js'></script>");
-				html.body.push("<style type='text/css'>
-					#debug_console {
-						background:#fff;
-						font-size:14px;
-					}
-					#debug_console font.log-normal {
-						color:#000;
-					}
-					#debug_console a.log-button  {
-						display:none;
-					}
-					</style>");
+				html.head.push("<link rel='stylesheet' href='"+Api.root+"/console.css' type='text/css'>");
 
 			case NEKO ( name ):
 				Api.checkSanity( name );
@@ -461,7 +504,7 @@ class Compiler {
 				} catch(e:Dynamic) {
 
 				}
-
+				
 				return s;
 			}
 			return "";
@@ -489,6 +532,19 @@ class Compiler {
 
 		var times_pos = haxe_err.indexOf("Total time");
 		var haxe_times = "";
+
+		if(times_pos == -1) {
+			times_pos = haxe_err.indexOf("time(s)");
+			if(times_pos > -1) {
+				while(true) {
+					times_pos--;
+					if(haxe_err.charAt(times_pos) == '\n' || haxe_err.charAt(times_pos) == "" || times_pos <= 0) {
+						break;
+					}
+				}
+			}
+		}
+
 		// if we have times let's dump them into another variable
 		if(times_pos > -1) {
 			haxe_times = haxe_err.substring(times_pos);
@@ -539,6 +595,10 @@ class Compiler {
 
 		return o;
 
+	}
+
+	public function getHaxeVersions():{stable:Array<Program.HaxeCompiler>, dev:Array<Program.HaxeCompiler>} {
+		return Utils.getHaxeVersions('../haxe/versions/');
 	}
 
 }

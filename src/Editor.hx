@@ -1,5 +1,6 @@
 import api.Completion.CompletionResult;
 import api.Completion.CompletionType;
+import api.Completion.CompletionItem;
 import api.Program;
 import haxe.remoting.HttpAsyncConnection;
 import js.Browser;
@@ -12,18 +13,31 @@ using Lambda;
 using StringTools;
 using haxe.EnumTools;
 
+typedef EditorData = {
+  nameElement:JQuery,
+  codeMirror:CodeMirror,
+  completionManager:Completion,
+  colorPreview:ColorPreview,
+  functionParametersHelper:FunctionParametersHelper,
+  lint:HaxeLint,
+}
+
 class Editor {
+
+  // min height to be bigger than the "options" tab, so it never has scrollbars 
+  // FIXME: measure
+  static inline var MIN_HEIGHT = 525;
 
 	var cnx : HttpAsyncConnection;
 
 	var program : Program;
 	var output : Output;
-
-
+	
 	var gateway : String;
-
+  var apiRoot : String;
+	
 	var form : JQuery;
-	var haxeSources : Array<{name: JQuery, source: CodeMirror}> = [];
+  var haxeEditors : Array<EditorData> = [];
 	var jsSource : CodeMirror;
 	var runner : JQuery;
 	var messages : JQuery;
@@ -50,11 +64,12 @@ class Editor {
   var markers : Array<CodeMirror.MarkedText>;
   var lineHandles : Array<CodeMirror.LineHandle>;
 
-  var completions : Array<String>;
   var completionIndex : Int;
 
-	public function new(){
+  var functionParametersHelper:FunctionParametersHelper;
+  var completionManager:Completion;
 
+	public function new(){
     markers = [];
     lineHandles = [];
 
@@ -62,7 +77,11 @@ class Editor {
     CodeMirror.commands.compile = function(_) compile();
     CodeMirror.commands.togglefullscreen = toggleFullscreenSource;
 
-    HaxeLint.load();
+    functionParametersHelper = new FunctionParametersHelper();
+    completionManager = new Completion();
+    completionManager.registerHelper(functionParametersHelper);
+
+    //HaxeLint.load();
 
 		addHaxeSource(new JQuery("input[name=module-a]"), cast new JQuery("textarea[name='hx-source']")[0]);
 		addHaxeSource(new JQuery("input[name=module-b]"), cast new JQuery("textarea[name='hx-source2']")[0]);
@@ -122,8 +141,8 @@ class Editor {
 
 		new JQuery("a[data-toggle='tab']").bind( "shown", function(e){
 			jsSource.refresh();
-			for(src in haxeSources){
-				src.source.refresh();
+			for(src in haxeEditors){
+				src.codeMirror.refresh();
 			}
       embedSource.refresh();
 		});
@@ -135,19 +154,44 @@ class Editor {
 
 		compileBtn.bind( "click" , compile );
 
-		var apiRoot = new JQuery("body").data("api");
+	  apiRoot = new JQuery("body").data("api");
 		cnx = HttpAsyncConnection.urlConnect(apiRoot+"/compiler");
 
     program = {
       uid : null,
 			mainClass: "Test",
-      modules : [for(src in haxeSources) {name: src.name.val(), source: src.source.getValue()}],
+      modules : [for(src in haxeEditors) {name: src.nameElement.val(), source: src.codeMirror.getValue()}],
       dce : "full",
       analyzer : "yes",
 			haxeVersion: Haxe_3_3_0_rc_1,
       target : SWF( "test", 11.4 ),
       libs : new Array()
     };
+
+    cnx.Compiler.getHaxeVersions.call([], function(versions:{stable:Array<api.Program.HaxeCompiler>, dev:Array<api.Program.HaxeCompiler>}) {
+      var select = haxeVersion.find("select");
+      select.empty();
+      program.haxeVersion = versions.stable[0].version;
+      
+      if(versions.stable.length > 0) {
+        var stableElem = new JQuery('<optgroup>');
+        stableElem.attr('label', "Stable releases");
+        for(version in versions.stable) {
+          stableElem.append('<option value="${version.dir}">${version.version}</option>');
+        }
+        select.append(stableElem);
+      }
+
+      if(versions.dev.length > 0) {
+        var devElem = new JQuery('<optgroup>');
+        devElem.attr('label', "Development releases");
+        for(version in versions.dev) {
+          devElem.append('<option value="${version.dir}">${version.version}</option>');
+        }
+        select.append(devElem);
+      }
+      
+    });
 
     initLibs();
 
@@ -165,66 +209,86 @@ class Editor {
   }
 
 	function addHaxeSource(name:JQuery, elem) {
+
+    var lint = new HaxeLint();
+
 		var haxeSource = CodeMirror.fromTextArea( elem , {
 			mode : "haxe",
 			//theme : "default",
 			lineWrapping : true,
 			lineNumbers : true,
-			extraKeys : {
-				"Ctrl-Space" : function (cm:CodeMirror) autocomplete(name, cm),
-        "Ctrl-Enter" : "compile",
-        "F8" : "compile",
-        "F5" : "compile",
-        "F11" : "togglefullscreen"
-			}
-        	,
-            lint: true,
-            matchBrackets: true,
-            autoCloseBrackets: true,
-            gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter", "CodeMirror-lint-markers"],
-            indentUnit: 2,
-            tabSize: 2,
-            keyMap: "sublime"
+      
+      lint: {
+        getAnnotations: lint.getLintData,
+        async: true,
+      },
+      
+      matchBrackets: true,
+      autoCloseBrackets: true,
+      gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter", "CodeMirror-lint-markers"],
+      indentUnit: 2,
+      tabSize: 2,
+      keyMap: "sublime"
 		} );
 
-    ColorPreview.create(haxeSource);
+    var colorPreview = new ColorPreview(haxeSource);
 
+    var editorData = {
+      nameElement: name,
+      codeMirror: haxeSource,
+      colorPreview: colorPreview,
+      completionManager: completionManager,
+      functionParametersHelper: functionParametersHelper,
+      lint: lint,
+    };
+
+		haxeEditors.push(editorData);
+
+    haxeSource.setOption("extraKeys", {
+      "Ctrl-Space" : function (cm:CodeMirror) autocomplete(editorData),
+      "Ctrl-Enter" : "compile",
+      "F8" : "compile",
+      "F5" : "compile",
+      "F11" : "togglefullscreen"
+    });
+        
     haxeSource.on("cursorActivity", function()
     {
-        ColorPreview.update(haxeSource);
-    });
-
+      colorPreview.update(completionManager, haxeSource);
+		  functionParametersHelper.update(this, editorData);
+    });  
+      
     haxeSource.on("scroll", function ()
     {
-        ColorPreview.scroll(haxeSource);
-    });
-
-    Completion.registerHelper();
-    haxeSource.on("change", onChange);
-
-		haxeSources.push({name: name, source: haxeSource});
+        colorPreview.scroll(haxeSource);
+    });   
+	
+    haxeSource.on("change", onChange.bind(_, _, editorData));
 	}
 
   function resize(?_) {
-
+    // reset
     setHeight(10);
 
     var win = js.Browser.window;
     var body = new JQuery(win.document.body);
     var main = new JQuery('.main');
-
+    
+    // window height - 160 - footer height
     var h = win.innerHeight - 160;
     h -= new JQuery('.foot').height();
+
+    h = Math.max(h, MIN_HEIGHT);
 
     setHeight(Std.int(h));
 
   }
 
   function setHeight(h:Int){
-		for(src in haxeSources) {
-			src.source.getScrollerElement().style.height=h+'px';
-			src.source.getWrapperElement().style.height=h+'px';
-			src.source.refresh();
+		for(src in haxeEditors) {
+			src.codeMirror.getScrollerElement().style.height=h+'px';
+			src.codeMirror.getWrapperElement().style.height=h+'px';
+			src.codeMirror.refresh();
 		}
     runner.height(h-12);
     new JQuery('#hx-options').height(h+2);
@@ -273,8 +337,8 @@ class Editor {
       url:'examples/Example-${_this.data("value")}.hx',
       dataType: "text"
     }).done(function(data) {
-			haxeSources[0].name.val("Test");
-      haxeSources[0].source.setValue(data);
+			haxeEditors[0].nameElement.val("Test");
+      haxeEditors[0].codeMirror.setValue(data);
       new JQuery("input[name='main']").val("Test");
     });
     e.preventDefault();
@@ -300,8 +364,8 @@ class Editor {
 
   function toggleFullscreenSource(_){
     new JQuery("body").toggleClass("fullscreen-source");
-    for(src in haxeSources) {
-			src.source.refresh();
+    for(src in haxeEditors) {
+			src.codeMirror.refresh();
 		}
     fullscreen();
   }
@@ -366,8 +430,8 @@ class Editor {
             '<label class="checkbox"><input class="lib" type="checkbox" value="${l.name}"'
           + (Lambda.has(def, l.name) ? "checked='checked'" : "")
           + ' /> ${l.name}'
-          + "<span class='help-inline'><a href='" + (l.help == null ? "http://lib.haxe.org/p/" + l.name : l.help)
-          + "' target='_blank'><i class='icon-question-sign'></i></a></span>"
+          + "<span class='help-inline'><a href='" + (l.help == null ? "http://lib.haxe.org/p/" + l.name : l.help) 
+          + "' target='_blank'><i class='fa fa-question-circle'></i></a></span>"
           + "</label>"
           );
 
@@ -388,14 +452,24 @@ class Editor {
       // auto-fork
       program.uid = null;
 
-			for(i in 0...haxeSources.length) {
-				haxeSources[i].name.val(program.modules[i].name);
-				haxeSources[i].source.setValue(program.modules[i].source);
+			for(i in 0...haxeEditors.length) {
+				haxeEditors[i].nameElement.val(program.modules[i].name);
+				haxeEditors[i].codeMirror.setValue(program.modules[i].source);
 			}
 
       setTarget( program.target );
       setDCE(program.dce);
       setAnalyzer(program.analyzer);
+
+      var versionElem = haxeVersion.find('select option:[value="${program.haxeVersion}"]');
+      if(versionElem.length == 0) {
+        // The version has been removed, move the program to the latest stable version
+        versionElem = haxeVersion.find('select option').first();
+        program.haxeVersion = versionElem.val();
+      }
+
+      versionElem.prop('selected', true);
+      
 
       if( program.libs != null ){
         for( lib in libs.find("input.lib") ){
@@ -414,36 +488,64 @@ class Editor {
 		}
 
 	}
-
-	public function autocomplete( name : JQuery, cm : CodeMirror ){
-    clearErrors();
-    messages.fadeOut(0);
+	
+	function saveCompletion( editorData:EditorData, comps:CompletionResult, onComplete:CodeMirror->CompletionResult->Void) {
+		completionManager.completions = [];
+		
+		if (comps.list != null) {
+			completionManager.completions = comps.list;
+		}
+		
+		onComplete(editorData.codeMirror, comps);
+	}
+	
+	public function getCompletion( editorData:EditorData, onComplete: CodeMirror->CompletionResult->Void, ?pos: CodeMirror.Pos, ?targetCompletionType: CompletionType){
 		updateProgram();
-    var src = cm.getValue();
+    var cm = editorData.codeMirror;
+		var src = cm.getValue();
 
-    var completion = CompletionType.DEFAULT;
+		var completionType = CompletionType.DEFAULT;
 
-    var idx = SourceTools.getAutocompleteIndex( src , cm.getCursor() );
-    if( idx == null ) {
-      return ;
-      // TODO: topLevel completion?
-      //idx = SourceTools.posToIndex(src, cm.getCursor());
-    }
+		var cursorPos = pos;
+		
+		if (cursorPos == null) {
+			cursorPos = cm.getCursor();
+		}
+		
+		var idx = SourceTools.getAutocompleteIndex( src , cursorPos );
+		
+		if( idx == null ) {
+		  // TODO: topLevel completion?
+		  idx = SourceTools.posToIndex(src, cm.getCursor());
+		  completionType = CompletionType.TOP_LEVEL;
+		}
 
-    // sometimes show incorrect result (time.getDate| change to value.length| -> completionIndex are equals)
-    // if( idx == completionIndex && completions != null ){
-    //   displayCompletions( cm , {list:completions} );
-    //   return;
-    // }
-    completionIndex = idx;
-		/*
-    if( src.length > 1000 ){
-      program.main.source = src.substring( 0 , completionIndex+1 );
-    }
-		*/
-
-		var module = program.modules.find(function(m) return m.name == name.val());
-    cnx.Compiler.autocomplete.call( [ program , module, idx ] , function( comps:CompletionResult ) displayCompletions( cm , comps ) );
+		// sometimes show incorrect result (time.getDate| change to value.length| -> completionIndex are equals)
+		// if( idx == completionIndex && completions != null ){ 
+		//   displayCompletions( cm , {list:completions} ); 
+		//   return;
+		// }
+		completionIndex = idx;
+    /*
+		if( src.length > 1000 ){
+		  program.main.source = src.substring( 0 , completionIndex+1 );
+		}
+    */
+		var module = program.modules.find(function(m) return m.name == editorData.nameElement.val());
+		if (targetCompletionType == null)
+		{
+			cnx.Compiler.autocomplete.call( [ program, module, idx, completionType ] , function( comps:CompletionResult ) saveCompletion(editorData, comps, onComplete));
+		}
+		else if (targetCompletionType == completionType)
+		{
+			cnx.Compiler.autocomplete.call( [ program, module, idx, completionType ] , function( comps:CompletionResult ) saveCompletion(editorData, comps, onComplete));
+		}
+	}
+	
+	public function autocomplete(editorData:EditorData) {
+    clearErrors(editorData);
+    messages.fadeOut(0);
+	  getCompletion(editorData, displayCompletions);
 	}
 
 //   function showHint( cm : CodeMirror ){
@@ -470,27 +572,16 @@ class Editor {
 //   }
 
 	public function displayCompletions(cm : CodeMirror , comps : CompletionResult ) {
-
-    completions = null;
-    if (comps.list != null) {
-  		completions = comps.list;
-
-        Completion.completions = [];
-
-        for (completion in completions)
-        {
-        	Completion.completions.push({n: completion});
-        }
-
-      	cm.execCommand("autocomplete");
-    }
-    if (comps.type != null) {
-      trace(comps.type);
-       var pos = cm.getCursor();
-       var end = {line:pos.line, ch:pos.ch+comps.type.length};
-       cm.replaceRange(comps.type, pos, pos);
-       cm.setSelection(pos, end);
-    }
+	
+	  cm.execCommand("autocomplete");
+	
+    // if (comps.type != null) {
+    //   trace(comps.type);
+    //    var pos = cm.getCursor();
+    //    var end = {line:pos.line, ch:pos.ch+comps.type.length};
+    //    cm.replaceRange(comps.type, pos, pos);
+    //    cm.setSelection(pos, end);
+    // } 
     if (comps.errors != null) {
       messages.html( "<div class='alert alert-error'><h4 class='alert-heading'>Completion error</h4><div class='message'></div></div>" );
       for( m in comps.errors ){
@@ -518,27 +609,27 @@ class Editor {
 
   }
 
-	public function onChange( cm :CodeMirror, e : js.codemirror.CodeMirror.ChangeEvent ){
+	public function onChange( cm :CodeMirror, e : js.codemirror.CodeMirror.ChangeEvent, editorData:EditorData ){
     var txt :String = e.text[0];
 
-    if( txt.trim().endsWith( "." ) || txt.trim().endsWith( "()" ) ){
-      for(src in haxeSources) autocomplete( src.name, src.source );
+    if( txt.trim().endsWith( "." ) || txt.trim().endsWith( "()" ) ) {
+      autocomplete(editorData);
     }
 	}
 
 	public function compile(?e){
 		if( e != null ) e.preventDefault();
     messages.fadeOut(0);
-    clearErrors();
+    for(data in haxeEditors) clearErrors(data);
 		compileBtn.buttonLoading();
 		updateProgram();
 		cnx.Compiler.compile.call( [program] , onCompile );
 	}
 
 	function updateProgram(){
-		for(i in 0...haxeSources.length) {
-			program.modules[i].name = haxeSources[i].name.val();
-			program.modules[i].source = haxeSources[i].source.getValue();
+		for(i in 0...haxeEditors.length) {
+			program.modules[i].name = haxeEditors[i].nameElement.val();
+			program.modules[i].source = haxeEditors[i].codeMirror.getValue();
 		}
 		program.mainClass = mainName.val();
     program.dce = new JQuery( 'input[name=\'dce\']:checked' ).val();
@@ -546,7 +637,6 @@ class Editor {
 
 		var libs = new Array();
     var sel = Type.enumConstructor(program.target);
-
 		var inputs = new JQuery("#hx-options .hx-libs ."+sel+"-libs input.lib:checked");
 		// TODO: change libs array only then need
 		for (i in inputs)  // refill libs array, only checked libs
@@ -562,11 +652,12 @@ class Editor {
 
 	public function run(){
 		if( output.success ){
-  		var run = output.href ;
-  		runner.attr("src" , run + "?r=" + Std.string(Math.random()) );
+  		var run = output.href;
+      run = run.replace("/try-haxe/", "/");
+  		runner.attr("src" , apiRoot + run + "?r=" + Std.string(Math.random()) );
       new JQuery(".link-btn, .fullscreen-btn")
         .buttonReset()
-        .attr("href" , run + "?r=" + Std.string(Math.random()) );
+        .attr("href" , apiRoot + run + "?r=" + Std.string(Math.random()) );
 
 		}else{
 			runner.attr("src" , "about:blank" );
@@ -650,27 +741,18 @@ class Editor {
 
 	}
 
-  public function clearErrors(){
-      HaxeLint.data = [];
-			for(src in haxeSources) {
-				HaxeLint.updateLinting(src.source);
-			}
-//     for( m in markers ){
-//       m.clear();
-//     }
-//     markers = [];
-//     for( l in lineHandles ){
-//       haxeSource.clearMarker( l );
-//     }
+  public function clearErrors(editorData:EditorData) {
+    editorData.lint.data = [];
+    editorData.lint.updateLinting(editorData.codeMirror);
   }
 
-  public function markErrors(errors:Array<String>){
-    HaxeLint.data = [];
-
+  public function markErrors(errors:Array<String>) {
     var errLine = ~/([^:]*):([0-9]+): characters ([0-9]+)-([0-9]+) :(.*)/g;
 
+    var errorMap:Map<String, Array<HaxeLint.Info>> = new Map();
+
     for( e in errors ){
-      if( errLine.match( e ) ){
+      if( errLine.match( e ) ) {
         var err = {
           file : errLine.matched(1),
           line : Std.parseInt(errLine.matched(2)) - 1,
@@ -679,20 +761,19 @@ class Editor {
           msg : errLine.matched(5)
         };
 
-        if( StringTools.trim( err.file ) == "Test.hx" ){
-            HaxeLint.data.push({from:{line:err.line, ch:err.from}, to:{line:err.line, ch:err.to}, message:err.msg, severity:"error"});
-          //trace(err.line);
-//           var l = haxeSource.setMarker( err.line , "<i class='icon-warning-sign icon-white'></i>" , "error");
-//           lineHandles.push( l );
+        var file = err.file.trim();
+        file = file.substring(0, file.lastIndexOf("."));
+        var data = errorMap.exists(file) ? errorMap.get(file) : {var a = []; errorMap.set(file, a); a;};
 
-//           var m = haxeSource.markText( { line : err.line , ch : err.from } , { line : err.line , ch : err.to } , "error");
-//           markers.push( m );
-        }
-
+        data.push({from:{line:err.line, ch:err.from}, to:{line:err.line, ch:err.to}, message:err.msg, severity:"error"});
       }
     }
 
-	for(src in haxeSources) HaxeLint.updateLinting(src.source);
+    for(key in errorMap.keys()) {
+      var editorData = haxeEditors.find(function(data) return data.nameElement.val() == key);
+      editorData.lint.data = errorMap.get(key);
+      editorData.lint.updateLinting(editorData.codeMirror);
+    }
   }
 
 }
