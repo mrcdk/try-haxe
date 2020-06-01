@@ -85,39 +85,38 @@
   					<li><a href="#hx-about" onclick="document.getElementById('about-tab').click();return false">About</a></li>
   					
   					<li class="divider"></li>
-  					<!-- required submenu  on every subsite, put class="active" on   -->
   					<li class="dropdown">
   						<a class="dropdown-toggle" data-toggle="dropdown" href="#">Learn Haxe <b class="caret"></b></a>
-
-  						<ul class="dropdown-menu">
-  							<li><a href="https://haxe.org/documentation/">Introduction</a></li>
-  							<li class="divider"></li>
-  							<li><a href="https://haxe.org/manual/">Manual</a></li>
-  							<li><a href="https://api.haxe.org">API Documentation</a></li>
-  							<li class="divider"></li>
-  							<li class="active"><a href="https://try.haxe.org">Try Haxe</a></li>
-  							<li><a href="https://lib.haxe.org">Haxelib</a></li>
-  							<li><a href="http://code.haxe.org">Code Cookbook</a></li>
-  						</ul>
+						<ul class="dropdown-menu">
+							<li><a href="https://haxe.org/documentation/introduction/" rel="external">Introduction</a></li>
+							<li><a href="https://haxe.org/manual/" rel="external">Manual</a></li>
+							<li class="active"><a href="https://code.haxe.org" rel="external">Code Cookbook</a></li>
+							<li><a href="https://api.haxe.org" rel="external">API Documentation</a></li>
+							<li class="divider"></li>
+							<li><a href="https://haxe.org/videos/" rel="external">Videos</a></li>
+							<li class="divider"></li>
+							<li class="active"><a href="https://try.haxe.org" rel="external">Try Haxe online</a></li>
+							<li><a href="https://lib.haxe.org" rel="external">Haxelib</a></li>
+						</ul>
   					</li>
   					<li class=" dropdown">
   						<a class="dropdown-toggle" data-toggle="dropdown" href="#">Connect <b class="caret"></b></a>
   						<ul class="dropdown-menu">
-  							<li><a href="https://github.com/clemos/try-haxe/"><i class="fa fa-github"></i> Github</a></li>
-  							<li><a href="https://github.com/clemos/try-haxe/issues"><i class="fa fa-github"></i> Bug reports</a></li>
-  							<li><a href="https://stackoverflow.com/questions/tagged/haxe"><i class="fa fa-stack-exchange"></i> Stack Overflow</a></li>
-  							<li><a href="https://groups.google.com/group/haxelang?hl=en"><i class="fa fa-envelope-o"></i> Google Groups</a></li>
-  							<li><a href="https://webchat.freenode.net/?channels=haxe"><i class="fa fa-comments-o"></i> IRC</a></li>
-  							<li><a href="https://haxe.org/blog"><i class="fa fa-rss"></i> Blog</a></li>
-  							<li class="divider"></li>
-  							<li><a href="https://plus.google.com/communities/103302587329918132234"><i class="fa fa-google-plus"></i> Google+</a></li>
-  							<li><a href="https://www.facebook.com/haxe.org/"><i class="fa fa-facebook"></i> Facebook</a></li>
-  							<li><a href="https://twitter.com/search?q=%23haxe"><i class="fa fa-twitter"></i> #haxe</a></li>
-  							<li><a href="https://twitter.com/haxelang"><i class="fa fa-twitter"></i> @haxelang</a></li>
-  							<li><a href="https://twitter.com/haxe_org"><i class="fa fa-twitter"></i> @haxe_org</a></li>
-  							<li class="divider"></li>
-  							<li><a href="https://haxe.org/foundation/contact.html">Contact</a></li>
-  						</ul>
+							<li><a href="https://github.com/HaxeFoundation" rel="external"><i class="fa fa-github"></i> Github</a></li>
+							<li><a href="https://github.com/HaxeFoundation/haxe/issues" rel="external"><i class="fa fa-github"></i> Bug reports</a></li>
+							<li><a href="https://stackoverflow.com/questions/tagged/haxe" rel="external"><i class="fa fa-stack-overflow"></i> Stack Overflow</a></li>
+							<li><a href="http://community.haxe.org/" rel="external"><i class="fa fa-envelope-o"></i> Forums</a></li>
+							<li><a href="https://discordapp.com/invite/0uEuWH3spjck73Lo" rel="external nofollow"><i class="fa fa-comments-o"></i> Discord</a></li>
+							<li><a href="https://gitter.im/HaxeFoundation/haxe" rel="external nofollow"><i class="fa fa-comments-o"></i> Gitter</a></li>
+							<li><a href="https://haxe.org/blog"><i class="fa fa-rss"></i> Blog</a></li>
+							<li class="divider"></li>
+							<li><a href="https://www.facebook.com/haxe.org/" rel="external"><i class="fa fa-facebook"></i> Facebook</a></li>
+							<li><a href="https://twitter.com/search?q=%23haxe" rel="external"><i class="fa fa-twitter"></i> #haxe</a></li>
+							<li><a href="https://twitter.com/haxelang" rel="external"><i class="fa fa-twitter"></i> @haxelang</a></li>
+							<li><a href="https://twitter.com/haxe_org" rel="external"><i class="fa fa-twitter"></i> @haxe_org</a></li>
+							<li class="divider"></li>
+							<li><a href="https://haxe.org/foundation/contact.html" rel="external">Contact</a></li>
+						</ul>
   					</li>
   				</ul>
 
@@ -373,15 +372,6 @@ class Macro {
     var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
   })();
 
-</script>
-
-<!-- Place this render call where appropriate -->
-<script type="text/javascript">
-  (function() {
-    var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;
-    po.src = 'https://apis.google.com/js/plusone.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
-  })();
 </script>
 
 <script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src="//platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js,fjs);}}(document,"script","twitter-wjs");</script>
